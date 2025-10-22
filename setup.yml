@@ -1,0 +1,30 @@
+---
+- name: Setup dev VM
+  hosts: all
+  gather_facts: no
+  remote_user: lars
+  become: true
+
+  tasks:
+  - name: Shut machine down after 30min if no user logged in
+    ansible.builtin.cron:
+      name: "30min shutdown"
+      minute: "*/30"
+      job: "[ $(who | sort --key=1,1 --unique | wc --lines) -eq 0 ] && shutdown -P now"
+
+  - name: Install tools
+    ansible.builtin.apt:
+      install_recommends: false
+      update_cache: true
+      state: present
+      name:
+      - build-essential
+      - fish
+      - htop
+      - ripgrep
+
+  - name: Modify .bashrc
+    ansible.builtin.lineinfile:
+      path: /home/lars/.bashrc
+      regexp: "^which fish"
+      line: which fish && exec fish

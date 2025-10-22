@@ -1,0 +1,12 @@
+#plugin: google.cloud.gcp_compute
+#projects:
+#  - carbon-cacao-475319-k4
+#auth_kind: application
+#hostnames:
+#  - name
+#compose:
+#  ansible_host: networkInterfaces[0].accessConfigs[0].natIP
+#filters:
+#  - status = RUNNING
+[instances]
+moz-fx-leggert ansible_python_interpreter=auto_silent
