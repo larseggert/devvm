@@ -45,4 +45,6 @@ Use the Ansible playbook in `ubuntu.yml` to configure the VM:
 ansible-playbook -i inventory.yml ubuntu.yml
 ```
 
+The playbook configures the VM to log you out after 30 minutes of inactivity, and it will shut down the VM after at most another 30 minutes of inactivity. This is to save costs when you forget to turn off the VM.
+
 Refrain from changing the VM configuration directly on the VM; instead, make changes to the Ansible playbook and re-run it.
