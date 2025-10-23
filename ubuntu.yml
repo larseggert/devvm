@@ -1,0 +1,274 @@
+---
+- name: Setup dev VM
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: Create shutdown check script
+      become: true
+      ansible.builtin.copy:
+        dest: /root/shutdown-check.sh
+        mode: u+rwx
+        content: |
+          #!/usr/bin/env bash
+          if [ "$(who | sort --key=1,1 --unique | wc --lines)" -eq 0 ]; then
+            shutdown -P now
+          fi
+
+    - name: Shut machine down after 30 min if no user logged in
+      become: true
+      ansible.builtin.cron:
+        name: Shutdown after 30 min if no user logged in
+        minute: "*/30"
+        job: /root/shutdown-check.sh
+
+    - name: Force systemd logout after 30 min of inactivity
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/logind.conf
+        regexp: "^#?StopIdleSessionSec="
+        line: StopIdleSessionSec=1800
+
+    - name: Upgrade all installed apt packages
+      become: true
+      ansible.builtin.apt:
+        autoclean: true
+        autoremove: true
+        install_recommends: false
+        update_cache: true
+        upgrade: dist
+
+    - name: Install tools
+      become: true
+      ansible.builtin.apt:
+        install_recommends: false
+        update_cache: true
+        state: present
+        name:
+          - build-essential
+          - fish
+          - htop
+          - ripgrep
+          - tmux
+          - bat
+          - sccache
+          - fzf
+          - zoxide
+          - direnv
+          - git
+          - libclang-dev
+          - command-not-found
+          - lld
+          - ninja-build
+          - python-is-python3
+          - linux-perf
+          - libnss3-dev
+          - pkg-config
+          - net-tools
+
+    - name: Check if cargo is installed
+      register: cargo
+      ansible.builtin.stat:
+        path: ~/.cargo/bin/cargo
+
+    - name: Download rustup
+      when: not cargo.stat.exists
+      ansible.builtin.get_url:
+        url: https://sh.rustup.rs
+        dest: /tmp/rustup.sh
+        mode: u+rwx
+
+    - name: Install Rust
+      when: not cargo.stat.exists
+      ansible.builtin.command: /tmp/rustup.sh -y --default-toolchain nightly
+      args:
+        creates: ~/.cargo/bin/cargo
+
+    - name: Check if cargo-binstall is installed
+      register: binstall
+      ansible.builtin.stat:
+        path: ~/.cargo/bin/cargo-binstall
+
+    - name: Download cargo-binstall install script
+      when: not binstall.stat.exists
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh
+        dest: /tmp/cargo-binstall.sh
+        mode: u+rwx
+
+    - name: Install cargo-binstall
+      when: not binstall.stat.exists
+      ansible.builtin.command: /tmp/cargo-binstall.sh
+      args:
+        creates: ~/.cargo/bin/cargo-binstall
+
+    - name: Install Rust tools
+      ansible.builtin.command: ~/.cargo/bin/cargo-binstall --no-confirm --locked "{{ item }}"
+      args:
+        creates: "~/.cargo/bin/{{ item }}"
+      loop:
+        - eza
+        - starship
+        - cargo-nextest
+
+    - name: Configure bash
+      block:
+        - name: Source ~/.bashrc.local
+          ansible.builtin.lineinfile:
+            path: ~/.bashrc
+            regexp: "^source ~/.bashrc.local"
+            line: "source ~/.bashrc.local"
+        - name: Configure ~/.bashrc.local
+          ansible.builtin.copy:
+            dest: ~/.bashrc.local
+            mode: u+rw
+            content: |
+              export RUSTFLAGS="-Clink-arg=-fuse-ld=lld -Cdebuginfo=line-tables-only -Zthreads=$(nproc --all)"
+              export RUSTC_WRAPPER=$(which sccache)
+              export SCCACHE_CACHE_SIZE=64G
+              export CMAKE_C_COMPILER_LAUNCHER=$(which sccache)
+              export CMAKE_CXX_COMPILER_LAUNCHER=$(which sccache)
+              export BAT_THEME=GitHub
+              RIPGREP_CONFIG_PATH=~/.config/ripgrep
+              which fish > /dev/null && exec fish
+
+    - name: Configure fish
+      ansible.builtin.copy:
+        dest: ~/.config/fish/config.fish
+        mode: u+rw
+        content: |
+          if status is-interactive
+            starship init fish | source
+            zoxide init fish | source
+            direnv hook fish | source
+            alias less=batcat
+            alias more=batcat
+            alias cat=batcat
+            alias ll="eza --hyperlink --icons --long --classify --header --bytes --group --all --time-style long-iso --git"
+            alias ls=ll
+            alias lt="ll --sort old"
+            alias la="ll"
+            alias pa="ps -axww -o user,pid,command | sort | grep -v 'USER.\*COMMAND'"
+            alias p="pa | egrep '^$USER'"
+            alias diff=batdiff
+            alias man=batman
+          end
+
+    - name: Configure ripgrep
+      ansible.builtin.copy:
+        dest: ~/.config/ripgrep
+        mode: u+rw
+        content: |
+          --colors=line:fg:yellow
+          --colors=line:style:bold
+          --colors=path:fg:green
+          --colors=path:style:bold
+          --colors=match:fg:black
+          --colors=match:bg:yellow
+          --colors=match:style:nobold
+          --glob-case-insensitive
+          --ignore-case
+          --hyperlink-format=vscode
+
+    - name: Configure starship
+      ansible.builtin.copy:
+        dest: ~/.config/starship.toml
+        mode: u+rw
+        content: |
+          "$schema" = 'https://starship.rs/config-schema.json'
+
+          format = """
+          [](color_orange)\
+          $os\
+          $username\
+          [](bg:color_yellow fg:color_orange)\
+          $directory\
+          [](fg:color_yellow bg:color_aqua)\
+          $git_branch\
+          $git_status\
+          [](fg:color_aqua bg:color_blue)\
+          $c\
+          $rust\
+          $golang\
+          $python\
+          [ ](fg:color_blue bg:color_bg0)"""
+
+          palette = 'gruvbox_dark'
+
+          [palettes.gruvbox_dark]
+          color_fg0 = '#fbf1c7'
+          color_bg1 = '#3c3836'
+          color_bg3 = '#665c54'
+          color_blue = '#458588'
+          color_aqua = '#689d6a'
+          color_green = '#98971a'
+          color_orange = '#d65d0e'
+          color_purple = '#b16286'
+          color_red = '#cc241d'
+          color_yellow = '#d79921'
+
+          [os]
+          disabled = false
+          style = "bg:color_orange fg:color_fg0"
+
+          [os.symbols]
+          Ubuntu = "󰕈"
+
+          [username]
+          show_always = true
+          style_user = "bg:color_orange fg:color_fg0"
+          style_root = "bg:color_orange fg:color_fg0"
+          format = '[ $user ]($style)'
+
+          [directory]
+          style = "fg:color_fg0 bg:color_yellow"
+          format = "[ $path ]($style)"
+          truncation_length = 2
+          truncation_symbol = "…/"
+          truncate_to_repo = false
+
+          [hostname]
+          ssh_only = false
+          style = "bg:color_orange fg:color_fg0"
+          format = '[$ssh_symbol$hostname ]($style)'
+
+          [git_branch]
+          symbol = ""
+          style = "bg:color_aqua"
+          format = '[[ $symbol $branch ](fg:color_fg0 bg:color_aqua)]($style)'
+
+          [git_status]
+          style = "bg:color_aqua"
+          format = '[[($all_status$ahead_behind )](fg:color_fg0 bg:color_aqua)]($style)'
+
+          [c]
+          symbol = " "
+          style = "bg:color_blue"
+          format = '[[ $symbol( $version) ](fg:color_fg0 bg:color_blue)]($style)'
+
+          [rust]
+          symbol = ""
+          style = "bg:color_blue"
+          format = '[[ $symbol( $version) ](fg:color_fg0 bg:color_blue)]($style)'
+
+          [golang]
+          symbol = ""
+          style = "bg:color_blue"
+          format = '[[ $symbol( $version) ](fg:color_fg0 bg:color_blue)]($style)'
+
+          [python]
+          symbol = ""
+          style = "bg:color_blue"
+          format = '[[ $symbol( $version) ](fg:color_fg0 bg:color_blue)]($style)'
+
+          [line_break]
+          disabled = false
+
+          [character]
+          disabled = false
+          success_symbol = '[](bold fg:color_green)'
+          error_symbol = '[](bold fg:color_red)'
+          vimcmd_symbol = '[](bold fg:color_green)'
+          vimcmd_replace_one_symbol = '[](bold fg:color_purple)'
+          vimcmd_replace_symbol = '[](bold fg:color_purple)'
+          vimcmd_visual_symbol = '[](bold fg:color_yellow)'
