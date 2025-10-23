@@ -11,14 +11,16 @@
         mode: u+rwx
         content: |
           #!/usr/bin/env bash
-          if [ "$(who | sort --key=1,1 --unique | wc --lines)" -eq 0 ]; then
+          if [ "$(w -h | sort --key=1,1 --unique | wc --lines)" -eq 0 ]; then
+            wall "No users logged in for 30 minutes, shutting down..."
+            sleep 3
             shutdown -P now
           fi
 
     - name: Shut machine down after 30 min if no user logged in
       become: true
       ansible.builtin.cron:
-        name: Shutdown after 30 min if no user logged in
+        name: 30-minute shutdown check
         minute: "*/30"
         job: /root/shutdown-check.sh
 
@@ -45,26 +47,32 @@
         update_cache: true
         state: present
         name:
-          - build-essential
-          - fish
-          - htop
-          - ripgrep
-          - tmux
           - bat
-          - sccache
-          - fzf
-          - zoxide
-          - direnv
-          - git
-          - libclang-dev
+          - build-essential
           - command-not-found
-          - lld
-          - ninja-build
-          - python-is-python3
-          - linux-perf
+          - direnv
+          - eza
+          - fish
+          - fzf
+          - git
+          - htop
+          - hyperfine
+          - libclang-dev
           - libnss3-dev
-          - pkg-config
+          - linux-perf
+          - lld
           - net-tools
+          - ninja-build
+          - pkg-config
+          - python-is-python3
+          - python3-pip
+          - ripgrep
+          - sccache
+          - starship
+          - tmux
+          - unzip
+          - watchman
+          - zoxide
 
     - name: Check if cargo is installed
       register: cargo
@@ -107,8 +115,12 @@
       args:
         creates: "~/.cargo/bin/{{ item }}"
       loop:
-        - eza
-        - starship
+        - cargo-audit
+        - cargo-deny
+        - cargo-fuzz
+        - cargo-hack
+        - cargo-llvm-cov
+        - cargo-machete
         - cargo-nextest
 
     - name: Configure bash
@@ -123,13 +135,14 @@
             dest: ~/.bashrc.local
             mode: u+rw
             content: |
-              export RUSTFLAGS="-Clink-arg=-fuse-ld=lld -Cdebuginfo=line-tables-only -Zthreads=$(nproc --all)"
-              export RUSTC_WRAPPER=$(which sccache)
-              export SCCACHE_CACHE_SIZE=64G
+              export BAT_THEME=GitHub
               export CMAKE_C_COMPILER_LAUNCHER=$(which sccache)
               export CMAKE_CXX_COMPILER_LAUNCHER=$(which sccache)
-              export BAT_THEME=GitHub
-              RIPGREP_CONFIG_PATH=~/.config/ripgrep
+              export MANPAGER="sh -c 'awk '\''{ gsub(/\x1B\[[0-9;]*m/, \"\", \$0); gsub(/.\x08/, \"\", \$0); print }'\'' | bat -p -lman'"
+              export RIPGREP_CONFIG_PATH=~/.config/ripgrep
+              export RUSTC_WRAPPER=$(which sccache)
+              export RUSTFLAGS="-Clink-arg=-fuse-ld=lld -Cdebuginfo=line-tables-only -Zthreads=$(nproc --all)"
+              export SCCACHE_CACHE_SIZE=64G
               which fish > /dev/null && exec fish
 
     - name: Configure fish
@@ -138,20 +151,20 @@
         mode: u+rw
         content: |
           if status is-interactive
-            starship init fish | source
-            zoxide init fish | source
-            direnv hook fish | source
-            alias less=batcat
-            alias more=batcat
+            alias bat=batcat
             alias cat=batcat
+            alias diff=batdiff
+            alias la="ll"
+            alias less=batcat
             alias ll="eza --hyperlink --icons --long --classify --header --bytes --group --all --time-style long-iso --git"
             alias ls=ll
             alias lt="ll --sort old"
-            alias la="ll"
-            alias pa="ps -axww -o user,pid,command | sort | grep -v 'USER.\*COMMAND'"
+            alias more=batcat
             alias p="pa | egrep '^$USER'"
-            alias diff=batdiff
-            alias man=batman
+            alias pa="ps -axww -o user,pid,command | sort | grep -v 'USER.\*COMMAND'"
+            direnv hook fish | source
+            starship init fish | source
+            zoxide init fish | source
           end
 
     - name: Configure ripgrep
@@ -161,14 +174,31 @@
         content: |
           --colors=line:fg:yellow
           --colors=line:style:bold
+          --colors=match:bg:yellow
+          --colors=match:fg:black
+          --colors=match:style:nobold
           --colors=path:fg:green
           --colors=path:style:bold
-          --colors=match:fg:black
-          --colors=match:bg:yellow
-          --colors=match:style:nobold
           --glob-case-insensitive
-          --ignore-case
           --hyperlink-format=vscode
+          --ignore-case
+
+    - name: Configure bat
+      block:
+        - name: Create bat config directory
+          ansible.builtin.file:
+            path: ~/.config/bat
+            state: directory
+            mode: u+rw
+        - name: Create bat config file
+          ansible.builtin.copy:
+            dest: ~/.config/bat/config
+            mode: u+rw
+            content: |
+              --italic-text=always
+              --style="plain"
+              --theme-dark="Nord"
+              --theme-light="GitHub"
 
     - name: Configure starship
       ansible.builtin.copy:
