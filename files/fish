@@ -1,0 +1,17 @@
+#!/usr/bin/env fish
+if status is-interactive
+        alias bat=batcat
+        alias cat=batcat
+        alias diff=batdiff
+        alias la="ll"
+        alias less=batcat
+        alias ll="eza --hyperlink --icons --long --classify --header --bytes --group --all --time-style long-iso --git"
+        alias ls=ll
+        alias lt="ll --sort old"
+        alias more=batcat
+        alias p="pa | egrep '^$USER'"
+        alias pa="ps -axww -o user,pid,command | sort | grep -v 'USER.\*COMMAND'"
+        direnv hook fish | source
+        starship init fish | source
+        zoxide init fish | source
+end

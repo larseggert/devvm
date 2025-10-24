@@ -2,39 +2,39 @@
 
 ## Make a GCP VM for development
 
-Make a new GCP project for your dev VM at <https://console.cloud.google.com/projectcreate>. Note the generated project ID, e.g., `carbon-cacao-123456-xy`.
+Make a new GCP project for your dev VM at <https://console.cloud.google.com/projectcreate> and give it a name, e.g., `$DEVVM`. Note the generated project ID, e.g., `$PROJECT`.
 
-Go to <https://console.cloud.google.com/compute> and create a new VM instance. I happen to use a `c2-standard-30` machine type in the `europe-north1-b` zone. Pick whatever works for you; use a zone near where you'll mostly access the VM from for low latency access. The OS needs to be Ubuntu if you want to use the provided Ansible playbook, I used Ubuntu 25.10.
+Go to <https://console.cloud.google.com/compute> and create a new VM instance. I happen to use a `c2-standard-30` machine type; pick whatever works for you. Use a zone near where you'll mostly access the VM from for low latency access, I'll refer to it as `$ZONE` below.
 
-## Register SSH public key with GCP
+The OS needs to be Ubuntu if you want to use the provided Ansible playbook, I used Ubuntu 25.10.
 
-This registers the `sshkey.pub` public key with Google Cloud OS Login for the `carbon-cacao-123456-xy` project with an unlimited lifetime.
+## Register SSH public key in GCP project metadata
+
+`$USER` below is your desired username on the VM. `$PUBLIC_KEY` is the contents of the SSH public key file you would like to use to log into the VM.
+
+Run this command to register the SSH public key in the GCP project metadata:
 
 ```bash
-gcloud compute os-login ssh-keys add \
-    --key-file=$HOME/.ssh/sshkey.pub \
-    --project=carbon-cacao-123456-xy \
-    --ttl=0
+gcloud compute project-info add-metadata --metadata="ssh-keys=$USER:$PUBLIC_KEY"
 ```
-
-You obviously need to make your own SSH key pair, and check what project name your VM is in.
 
 ## Configure SSH client for GCP IAP tunneling
 
-Add something like this to your `~/.ssh/config` file:
+Add something like this to your `~/.ssh/config` file, with all variables replaced as defined above, and `$PRIVATE_KEY` as the filename of the private key corresponding to the public key you registered above.
 
-```text
-Host moz-fx-leggert
-    Hostname moz-fx-leggert
-    User lars
-    IdentityFile ~/.ssh/sshkey
-    ProxyCommand gcloud compute start-iap-tunnel %h 22 --listen-on-stdin --project=carbon-cacao-123456-xy --zone=europe-north1-b
+```bash
+Host $DEVVM
+    User $USER
+    IdentityFile ~/.ssh/$PRIVATE_KEY
+    ProxyCommand gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=$PROJECT --zone=$ZONE
+    ForwardX11 yes # If you want X11 forwarding
+    ForwardAgent yes # If you want SSH agent forwarding
 ```
 
 Adjust the host name, username, private key, project name and zone as necessary. You should then be able to log into the VM with:
 
 ```bash
-ssh moz-fx-leggert
+ssh $DEVVM
 ```
 
 ## Ansible configuration
@@ -42,7 +42,7 @@ ssh moz-fx-leggert
 Use the Ansible playbook in `ubuntu.yml` to configure the VM:
 
 ```bash
-ansible-playbook -i inventory.yml ubuntu.yml
+ansible-playbook -i $DEVVM, ubuntu.yml
 ```
 
 The playbook configures the VM to log you out after 30 minutes of inactivity, and it will shut down the VM after at most another 30 minutes of inactivity. This is to save costs when you forget to turn off the VM.
