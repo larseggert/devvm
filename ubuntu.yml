@@ -172,7 +172,7 @@
           ansible.builtin.file:
             path: ~/.config/bat
             state: directory
-            mode: u+r
+            mode: u+rx
         - name: Create bat config file
           ansible.builtin.copy:
             src: files/bat
