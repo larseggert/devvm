@@ -8,7 +8,7 @@
       become: true
       ansible.builtin.copy:
         dest: /root/shutdown-check.sh
-        mode: u+rwx
+        mode: u+rx
         content: |
           #!/usr/bin/env bash
           if [ "$(w -h | sort --key=1,1 --unique | wc --lines)" -eq 0 ]; then
@@ -84,7 +84,7 @@
       ansible.builtin.get_url:
         url: https://sh.rustup.rs
         dest: /tmp/rustup.sh
-        mode: u+rwx
+        mode: u+rx
 
     - name: Install Rust
       when: not cargo.stat.exists
@@ -108,7 +108,7 @@
       ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh
         dest: /tmp/cargo-binstall.sh
-        mode: u+rwx
+        mode: u+rx
 
     - name: Install cargo-binstall
       when: not binstall.stat.exists
@@ -152,19 +152,19 @@
           ansible.builtin.copy:
             src: files/bash
             dest: ~/.bashrc.local
-            mode: u+rw
+            mode: u+r
 
     - name: Configure fish
       ansible.builtin.copy:
         src: files/fish
         dest: ~/.config/fish/config.fish
-        mode: u+rw
+        mode: u+r
 
     - name: Configure ripgrep
       ansible.builtin.copy:
         src: files/ripgrep
         dest: ~/.config/ripgrep
-        mode: u+rw
+        mode: u+r
 
     - name: Configure bat
       block:
@@ -172,15 +172,15 @@
           ansible.builtin.file:
             path: ~/.config/bat
             state: directory
-            mode: u+rw
+            mode: u+rwx
         - name: Create bat config file
           ansible.builtin.copy:
             src: files/bat
             dest: ~/.config/bat/config
-            mode: u+rw
+            mode: u+r
 
     - name: Configure starship
       ansible.builtin.copy:
         src: files/starship
         dest: ~/.config/starship.toml
-        mode: u+rw
+        mode: u+r
