@@ -1,9 +1,16 @@
 ---
 - name: Configure dev VM
   hosts: all
-  gather_facts: false
+  gather_facts: true
+  vars:
+    logout_delay: 30
+    shutdown_check_interval: 5
 
   tasks:
+    # - name: Display all facts
+    #   ansible.builtin.debug:
+    #     var: ansible_facts
+
     - name: Create shutdown check script
       become: true
       ansible.builtin.copy:
@@ -12,24 +19,36 @@
         content: |
           #!/usr/bin/env bash
           if [ "$(w -h | sort --key=1,1 --unique | wc --lines)" -eq 0 ]; then
-            wall "No users logged in for 30 minutes, shutting down..."
-            sleep 3
+            wall "No users logged in for {{ logout_delay }} minutes, shutting down..."
             shutdown -P now
           fi
 
-    - name: Shut machine down after 30 min if no user logged in
+    - name: Shut machine down after idle
       become: true
       ansible.builtin.cron:
-        name: 30-minute shutdown check
-        minute: "*/30"
+        name: Shutdown check
+        minute: "*/{{ shutdown_check_interval }}"
         job: /root/shutdown-check.sh
 
-    - name: Force user logout after 30 min of inactivity
+    - name: Force user logout after inactivity
       become: true
       ansible.builtin.lineinfile:
         path: /etc/systemd/logind.conf
         regexp: "^#?StopIdleSessionSec="
-        line: StopIdleSessionSec=1800
+        line: StopIdleSessionSec={{ logout_delay }}min
+
+    - name: Add Docker repository
+      become: true
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: deb
+        uris: "https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}"
+        suites: "{{ ansible_facts.distribution_release | lower }}"
+        components: stable
+        architectures: amd64
+        signed_by: "https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}/gpg"
+        state: present
+        enabled: true
 
     - name: Upgrade all installed apt packages
       become: true
@@ -50,7 +69,13 @@
           - bat
           - build-essential
           - command-not-found
+          - containerd.io
+          - curl
           - direnv
+          - docker-buildx-plugin
+          - docker-ce
+          - docker-ce-cli
+          - docker-compose-plugin
           - eza
           - fish
           - fzf
@@ -74,47 +99,67 @@
           - watchman
           - zoxide
 
-    - name: Check if cargo is installed
-      register: cargo
-      ansible.builtin.stat:
-        path: ~/.cargo/bin/cargo
+    - name: Add user to Docker group
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_facts.user_id }}"
+        groups: docker
+        append: true
 
-    - name: Download rustup
-      when: not cargo.stat.exists
-      ansible.builtin.get_url:
-        url: https://sh.rustup.rs
-        dest: /tmp/rustup.sh
-        mode: u+rx
+    - name: Install or update tools via installer scripts
+      vars:
+        tools:
+          - name: Claude Code
+            bin: ~/.local/bin/claude
+            url: https://claude.ai/install.sh
+            install_args: ""
+            update_cmd: ~/.local/bin/claude update
+          - name: Rust
+            bin: ~/.cargo/bin/cargo
+            url: https://sh.rustup.rs
+            install_args: -y --default-toolchain nightly --component rust-analyzer,miri,llvm-tools
+            update_cmd: ~/.cargo/bin/rustup update
+          - name: cargo-binstall
+            bin: ~/.cargo/bin/cargo-binstall
+            url: https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh
+            install_args: ""
+            update_cmd: ""
+      block:
+        - name: Check if tools are installed
+          ansible.builtin.stat:
+            path: "{{ item.bin }}"
+          loop: "{{ tools }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: tool_check
 
-    - name: Install Rust
-      when: not cargo.stat.exists
-      ansible.builtin.command: /tmp/rustup.sh -y --default-toolchain nightly --component rust-analyzer,miri,llvm-tools
-      args:
-        creates: ~/.cargo/bin/cargo
+        - name: Download installer scripts
+          ansible.builtin.get_url:
+            url: "{{ item.item.url }}"
+            dest: "/tmp/{{ item.item.name | lower | replace(' ', '-') }}-install.sh"
+            mode: u+rx
+          loop: "{{ tool_check.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+          when: not item.stat.exists
 
-    - name: Update Rust
-      when: cargo.stat.exists
-      ansible.builtin.command: ~/.cargo/bin/rustup update
-      register: rustup_update
-      changed_when: rustup_update.rc != 0
+        - name: Install tools
+          ansible.builtin.command: "/tmp/{{ item.item.name | lower | replace(' ', '-') }}-install.sh {{ item.item.install_args }}"
+          args:
+            creates: "{{ item.item.bin }}"
+          loop: "{{ tool_check.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+          when: not item.stat.exists
 
-    - name: Check if cargo-binstall is installed
-      register: binstall
-      ansible.builtin.stat:
-        path: ~/.cargo/bin/cargo-binstall
-
-    - name: Download cargo-binstall install script
-      when: not binstall.stat.exists
-      ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh
-        dest: /tmp/cargo-binstall.sh
-        mode: u+rx
-
-    - name: Install cargo-binstall
-      when: not binstall.stat.exists
-      ansible.builtin.command: /tmp/cargo-binstall.sh
-      args:
-        creates: ~/.cargo/bin/cargo-binstall
+        - name: Update tools
+          ansible.builtin.command: "{{ item.item.update_cmd }}"
+          register: tool_update
+          changed_when: tool_update.rc != 0
+          loop: "{{ tool_check.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+          when: item.stat.exists and item.item.update_cmd | length > 0
 
     - name: Install Rust tools
       ansible.builtin.command: ~/.cargo/bin/cargo-binstall --no-confirm --locked "{{ item.crate }}"
@@ -127,13 +172,15 @@
         - { crate: cargo-hack, creates: cargo-hack }
         - { crate: cargo-llvm-cov, creates: cargo-llvm-cov }
         - { crate: cargo-machete, creates: cargo-machete }
-        - { crate: cargo-machete, creates: cargo-machete }
+        - { crate: cargo-mutants, creates: cargo-mutants }
         - { crate: cargo-nextest, creates: cargo-nextest }
         - { crate: cargo-show-asm, creates: cargo-asm }
         - { crate: cargo-update, creates: cargo-install-update }
         - { crate: cargo-vet, creates: cargo-vet }
         - { crate: cbindgen, creates: cbindgen }
+        - { crate: critcmp, creates: critcmp }
         - { crate: samply, creates: samply }
+        - { crate: wild-linker, creates: wild }
         - { crate: zizmor, creates: zizmor }
 
     - name: Update Rust tools
@@ -154,33 +201,23 @@
             dest: ~/.bashrc.local
             mode: u+r
 
-    - name: Configure fish
-      ansible.builtin.copy:
-        src: files/fish
-        dest: ~/.config/fish/config.fish
-        mode: u+r
+    - name: Create config directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: u+rwx
+      loop:
+        - ~/.config/bat
+        - ~/.config/fish
 
-    - name: Configure ripgrep
+    - name: Copy config files
       ansible.builtin.copy:
-        src: files/ripgrep
-        dest: ~/.config/ripgrep
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
         mode: u+r
-
-    - name: Configure bat
-      block:
-        - name: Create bat config directory
-          ansible.builtin.file:
-            path: ~/.config/bat
-            state: directory
-            mode: u+rwx
-        - name: Create bat config file
-          ansible.builtin.copy:
-            src: files/bat
-            dest: ~/.config/bat/config
-            mode: u+r
-
-    - name: Configure starship
-      ansible.builtin.copy:
-        src: files/starship
-        dest: ~/.config/starship.toml
-        mode: u+r
+      loop:
+        - { src: files/bat, dest: ~/.config/bat/config }
+        - { src: files/fish, dest: ~/.config/fish/config.fish }
+        - { src: files/mozconfig, dest: ~/.mozconfig }
+        - { src: files/ripgrep, dest: ~/.config/ripgrep }
+        - { src: files/starship, dest: ~/.config/starship.toml }

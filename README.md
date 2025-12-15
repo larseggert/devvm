@@ -8,6 +8,10 @@ Go to <https://console.cloud.google.com/compute> and create a new VM instance. I
 
 The OS needs to be Ubuntu if you want to use the provided Ansible playbook, I used Ubuntu 25.10.
 
+## Install `gcloud` CLI
+
+Install the Google Cloud SDK (`gcloud` CLI) on your local machine by following the instructions at: <https://cloud.google.com/sdk/docs/install>. Authenticate with your Google account as described at: <https://cloud.google.com/docs/authentication/gcloud>.
+
 ## Register SSH public key in GCP project metadata
 
 `$USER` below is your desired username on the VM. `$PUBLIC_KEY` is the contents of the SSH public key file you would like to use to log into the VM.
@@ -45,6 +49,12 @@ Use the Ansible playbook in `ubuntu.yml` to configure the VM:
 ansible-playbook -i $DEVVM, ubuntu.yml
 ```
 
-The playbook configures the VM to log you out after 30 minutes of inactivity, and it will shut down the VM after at most another 30 minutes of inactivity. This is to save costs when you forget to turn off the VM.
+## Notes
+
+The playbook configures the VM to log you out after 30 minutes of inactivity, and it will shut down the VM after at most another 30 minutes of inactivity. This is to save costs when you forget to turn off the VM. You can restart the VM with:
+
+```bash
+gcloud compute instances start $DEVVM
+```
 
 Refrain from changing the VM configuration directly on the VM; instead, make changes to the Ansible playbook and re-run it.

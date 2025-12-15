@@ -6,7 +6,10 @@ SCCACHE=$(which sccache)
 export BAT_THEME=GitHub
 export CMAKE_C_COMPILER_LAUNCHER=$SCCACHE
 export CMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE
-export MANPAGER="sh -c 'awk '\''{ gsub(/\x1B\[[0-9;]*m/, \"\", \$0); gsub(/.\x08/, \"\", \$0); print }'\'' | bat -p -lman'"
+export MANPAGER="sh -c 'awk '\''{ gsub(/\x1B\[[0-9;]*m/, \"\", \$0); gsub(/.\x08/, \"\", \$0); print }'\'' | batcat -p -lman'"
+export MOZBUILD_STATE_PATH="$HOME/.mozbuild-state"
+export MOZCONFIG="$HOME/.mozconfig"
+export PATH="$HOME/.local/bin:$PATH"
 export RIPGREP_CONFIG_PATH=~/.config/ripgrep
 export RUSTC_WRAPPER=$SCCACHE
 export RUSTFLAGS="-Clink-arg=-fuse-ld=lld -Cdebuginfo=line-tables-only -Zthreads=$NPROC"
