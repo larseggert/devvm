@@ -1,5 +1,7 @@
 #!/usr/bin/env fish
 if status is-interactive
+        set -u fish_greeting
+
         alias bat=batcat
         alias cat=batcat
         alias diff=batdiff
@@ -11,6 +13,11 @@ if status is-interactive
         alias more=batcat
         alias p="pa | egrep '^$USER'"
         alias pa="ps -axww -o user,pid,command | sort | grep -v 'USER.\*COMMAND'"
+        alias aptup="sudo apt-get update; sudo apt-get dist-upgrade -y --no-install-recommends; sleep 5"
+        alias rsup="rustup update; cargo install-update -agi; sleep 5"
+        alias claudeup="claude update; sleep 5"
+        alias upall="tmux -CC new-session 'aptup' \; select-layout tiled \; split-window 'claudeup' \; select-layout tiled \; split-window 'rsup' \; select-layout tiled \; attach; fish_update_completions"
+
         direnv hook fish | source
         starship init fish | source
         zoxide init fish | source
